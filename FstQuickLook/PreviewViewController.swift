@@ -26,13 +26,39 @@ final class PreviewViewController: NSViewController, QLPreviewingController {
     private var warmupOffset = 0
     private var pendingRendered: NSAttributedString?
     private var pendingSource: NSAttributedString?
+    private var hasTables = false
+    private var markdownWidth: CGFloat = 786
+    private var markdownGeneration = 0
+
+    private var availableMarkdownWidth: CGFloat {
+        max(100, renderedScrollView.contentSize.width - renderedTextView.textContainerInset.width * 2 - 10)
+    }
+
+    @objc private func markdownViewportResized(_ notification: Notification? = nil) {
+        guard isMarkdown, hasTables, abs(availableMarkdownWidth - markdownWidth) > 1 else { return }
+        markdownWidth = availableMarkdownWidth
+        markdownGeneration += 1
+        let generation = markdownGeneration
+        let current = request
+        pendingRendered = nil
+        cancelWarmup()
+        // Reflow only table documents, off the main thread, after the resize settles.
+        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(120)) { [weak self] in
+            guard let self, self.request == current, self.markdownGeneration == generation else { return }
+            self.renderFullMarkdown(self.currentText, request: current)
+        }
+    }
 
     override func loadView() {
         view = NSView(frame: NSRect(x: 0, y: 0, width: 860, height: 640))
+        view.autoresizingMask = [.width, .height]
         view.appearance = NSAppearance(named: .aqua)
         view.wantsLayer = true
         view.layer?.backgroundColor = PreviewStyle.background.cgColor
         configure(renderedTextView, in: renderedScrollView, inset: NSSize(width: 32, height: 24))
+        renderedScrollView.contentView.postsFrameChangedNotifications = true
+        NotificationCenter.default.addObserver(self, selector: #selector(markdownViewportResized(_:)),
+                                               name: NSView.frameDidChangeNotification, object: renderedScrollView.contentView)
         renderedTextView.textLayoutManager?.delegate = codeLayout
         renderedTextView.linkTextAttributes = [.foregroundColor: PreviewStyle.link,
                                                .underlineStyle: NSUnderlineStyle.single.rawValue]
@@ -119,6 +145,8 @@ final class PreviewViewController: NSViewController, QLPreviewingController {
 
     func preparePreviewOfFile(at url: URL, completionHandler handler: @escaping (Error?) -> Void) {
         request += 1
+        markdownGeneration += 1
+        hasTables = false
         modeRequest += 1
         sourceButton.isEnabled = true
         let current = request
@@ -153,14 +181,19 @@ final class PreviewViewController: NSViewController, QLPreviewingController {
                 footerHeight.constant = footer.isHidden ? 0 : 36
                 preferredContentSize = NSSize(width: 860, height: 640)
                 if isMarkdown {
+                    view.layoutSubtreeIfNeeded()
+                    markdownWidth = availableMarkdownWidth
+                    let width = markdownWidth
                     let prefix = Self.firstPaintPrefix(text)
                     let rendered = try await Task.detached(priority: .userInitiated) {
-                        try Performance.measure("Markdown first paint render") { try MarkdownRenderer.render(prefix) }
+                        try Performance.measure("Markdown first paint render") { try MarkdownRenderer.render(prefix, width: width) }
                     }.value
                     guard current == request else { handler(CocoaError(.userCancelled)); return }
+                    hasTables = rendered.hasTables
                     install(rendered.attributedString, in: renderedTextView, scroll: renderedScrollView, resetToTop: true)
                     showSource(false)
                     view.layoutSubtreeIfNeeded()
+                    markdownViewportResized()
                     scrollToTop(renderedTextView, in: renderedScrollView)
                     handler(nil)
                     resetAfterPresentation(renderedTextView, in: renderedScrollView, request: current)
@@ -179,15 +212,20 @@ final class PreviewViewController: NSViewController, QLPreviewingController {
     }
 
     private func renderFullMarkdown(_ text: String, request current: Int) {
+        let width = markdownWidth
+        markdownGeneration += 1
+        let generation = markdownGeneration
         Task { @MainActor [weak self] in
             guard let full = try? await Task.detached(priority: .utility, operation: {
-                try Performance.measure("Markdown full render") { try MarkdownRenderer.render(text) }
-            }).value, let self, current == self.request else { return }
+                try Performance.measure("Markdown full render") { try MarkdownRenderer.render(text, width: width) }
+            }).value, let self, current == self.request, generation == self.markdownGeneration else { return }
+            self.hasTables = full.hasTables
             if self.isLiveScrolling { self.pendingRendered = full.attributedString }
             else {
                 self.install(full.attributedString, in: self.renderedTextView, scroll: self.renderedScrollView)
                 if !self.showingSource { self.startWarmup() }
             }
+            self.markdownViewportResized()
         }
     }
 

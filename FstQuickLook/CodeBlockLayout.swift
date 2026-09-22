@@ -10,6 +10,12 @@ final class CodeBlockLayoutDelegate: NSObject, NSTextLayoutManagerDelegate {
                            textLayoutFragmentFor location: NSTextLocation,
                            in textElement: NSTextElement) -> NSTextLayoutFragment {
         if let paragraph = textElement as? NSTextParagraph, paragraph.attributedString.length > 0,
+           let row = paragraph.attributedString.attribute(.previewTableRow, at: 0, effectiveRange: nil) as? MarkdownTableRow {
+            let fragment = MarkdownTableFragment(textElement: textElement, range: textElement.elementRange)
+            fragment.row = row
+            return fragment
+        }
+        if let paragraph = textElement as? NSTextParagraph, paragraph.attributedString.length > 0,
            let edges = paragraph.attributedString.attribute(.previewCodeBlock, at: 0, effectiveRange: nil) as? Int {
             let fragment = CodeBlockLayoutFragment(textElement: textElement, range: textElement.elementRange)
             fragment.edges = edges

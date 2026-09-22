@@ -10,14 +10,16 @@ Markdown supports inline math (`$…$`, `\(…\)`) and display math (`$$…$$`, 
 
 Source and Markdown previews use viewport-based TextKit 2 layout. Formatting, syntax coloring and formula preparation run off the UI thread. Long files show an initial prefix, then the complete bounded preview; full replacement and layout warmup pause during live scrolling. Formulas are cached as Retina images.
 
-The Markdown renderer is bundled locally with the app and uses cmark plus native AppKit text layout. It works offline and does not start WebKit or execute JavaScript.
+GitHub Flavored Markdown tables have a subtle header, fine borders, aligned columns and width-aware wrapping. Nested lists retain their hierarchy; task lists and strikethrough are supported. Table text remains selectable, and rows use viewport-based layout. Resizing a table document triggers a debounced background reflow.
+
+The Markdown renderer is bundled locally with the app and uses cmark-gfm plus native AppKit text layout. It works offline and does not start WebKit or execute JavaScript.
 
 ### Development
 
-Build and launch: `just run`. Test: `just test`; after a Release build, `Scripts/test-quicklook.sh` exercises JSON, math, viewport layout and scrolling. [Development](Development.md).
+Build and launch: `just run`. Test: `just test`; after a Release build, `Scripts/test-quicklook.sh` exercises JSON, math, GFM tables, list hierarchy, resizing, viewport layout and scrolling. [Development](Development.md).
 
 The fork uses bundle identifiers `com.procaross.Fst` and `com.procaross.Fst.QuickLook` so it does not collide with the upstream app. Upstream Sparkle auto-updating is intentionally removed; a custom build must not update itself back to the upstream Fst release. The upstream release command is disabled until fork-specific signing and release destinations are configured.
 
 ### License
 
-Fst is MIT licensed. The vendored cmark source and upstream licenses are under `Vendor/Down`. SwiftMath 1.7.3 is MIT licensed; its source, upstream revision and bundled font licenses are in `Vendor/SwiftMath`.
+Fst is MIT licensed. The vendored cmark-gfm source, upstream revision and licenses are under `Vendor/CMarkGFM`. SwiftMath 1.7.3 is MIT licensed; its source, upstream revision and bundled font licenses are in `Vendor/SwiftMath`.

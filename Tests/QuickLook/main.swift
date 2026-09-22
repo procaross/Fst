@@ -3,6 +3,7 @@ import AppKit
 func expect(_ condition: @autoclosure () -> Bool, _ message: String) {
     guard condition() else { fatalError(message) }
 }
+setbuf(stdout, nil)
 let app = NSApplication.shared
 app.setActivationPolicy(.prohibited)
 
@@ -51,6 +52,42 @@ expect(unsupported.contains(#"\notacommand"#), "Unsupported math stays readable"
 let block = try MarkdownRenderer.render("```sh\n# comment\necho hello\n```\n\n`inline`").attributedString
 expect(block.attribute(.backgroundColor, at: 0, effectiveRange: nil) == nil, "Code blocks must not paint each token background")
 expect(block.attribute(.previewCodeBlock, at: 0, effectiveRange: nil) != nil, "Code block has a fragment background")
+
+let tableMarkdown = #"""
+| Name | Center | Value |
+| :--- | :---: | ---: |
+| **中文** and `a\|b` | [link](https://example.com) | 42 |
+| A longer description that wraps without losing any words | | 123.45 |
+| $x^2$ | ~~old~~ | |
+"""#
+let table = try MarkdownRenderer.render(tableMarkdown, width: 600)
+expect(table.hasTables, "GFM table should be recognized")
+expect(table.attributedString.string.contains("a|b"), "Escaped pipe inside code stays in one cell")
+expect(!table.attributedString.string.contains(":---"), "Delimiter row must not appear as text")
+var tableRows: [MarkdownTableRow] = []
+table.attributedString.enumerateAttribute(.previewTableRow, in: NSRange(location: 0, length: table.attributedString.length)) { value, _, _ in
+    if let row = value as? MarkdownTableRow { tableRows.append(row) }
+}
+expect(tableRows.count == 4 && tableRows[0].header && tableRows[3].last, "Header and all body rows render, including empty cells")
+expect(abs(tableRows[0].widths.reduce(0, +) - 600) < 0.1, "Columns occupy available width")
+let tableStyle = table.attributedString.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as! NSParagraphStyle
+expect(tableStyle.tabStops.map(\.alignment) == [.left, .center, .right], "GFM column alignments survive")
+let linkRange = (table.attributedString.string as NSString).range(of: "link")
+expect(table.attributedString.attribute(.link, at: linkRange.location, effectiveRange: nil) != nil, "Table links stay interactive")
+let narrowTable = try MarkdownRenderer.render(tableMarkdown, width: 300).attributedString
+expect(narrowTable.string.filter { $0 == "\u{2028}" }.count > table.attributedString.string.filter { $0 == "\u{2028}" }.count,
+       "Narrow tables wrap cells instead of overflowing")
+let fencedTable = try MarkdownRenderer.render("```\n" + tableMarkdown + "\n```")
+expect(!fencedTable.hasTables, "Code fences never turn into tables")
+let list = try MarkdownRenderer.render("- Parent\n  - Nested\n    1. Third\n- Sibling\n\n- [x] Done\n- [ ] Pending").attributedString
+func listIndent(_ word: String) -> CGFloat {
+    let range = (list.string as NSString).range(of: word)
+    return (list.attribute(.paragraphStyle, at: range.location, effectiveRange: nil) as! NSParagraphStyle).headIndent
+}
+expect(listIndent("Parent") == listIndent("Sibling") && listIndent("Nested") > listIndent("Parent") && listIndent("Third") > listIndent("Nested"),
+       "Parent list styling must not flatten nested lists")
+expect(list.string.contains("☑") && list.string.contains("☐"), "GFM task lists display checkboxes")
+print("PASS: GFM tables, alignment, wrapping, inline styles, nested/task lists")
 
 // Use the same TextKit 2 view and decoration delegate as the extension.
 let controller = PreviewViewController()
@@ -131,3 +168,49 @@ expect(sourceView.textLayoutManager != nil, "Source also stays on TextKit 2")
 buttons.first { $0.title == "预览" }!.performClick(nil)
 expect(scroll.isHidden == false, "Preview switch restores rendered view")
 print("PASS: controller reuse, deferred full render, source switch, scroll traversal")
+
+// Reflow the installed controller at a narrow width and exercise a long table.
+let tableFile = directory.appendingPathComponent("table.md")
+let tableFixture = try String(contentsOfFile: "Tests/QuickLook/tables.md", encoding: .utf8)
+try tableFixture.write(to: tableFile, atomically: true, encoding: .utf8)
+done = false
+controller.preparePreviewOfFile(at: tableFile) { error in previewError = error; done = true }
+while !done { RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.005)) }
+expect(previewError == nil, "Controller accepts a table document")
+let beforeResize = rendered.string
+// NSWindow follows a content controller's preferred size in this harness.
+controller.preferredContentSize = NSSize(width: 460, height: 740)
+window.setContentSize(NSSize(width: 460, height: 740))
+controller.view.layoutSubtreeIfNeeded()
+window.displayIfNeeded()
+let resizeDeadline = Date(timeIntervalSinceNow: 5)
+while rendered.string == beforeResize && Date() < resizeDeadline { RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.01)) }
+expect(rendered.string != beforeResize, "Window resize must reflow table cells")
+expect(rendered.string.contains("12.5 MB") && rendered.string.contains("25.0%"), "Compact numeric columns should stay intact at narrow widths")
+expect(rendered.textLayoutManager != nil, "Table reflow must retain TextKit 2")
+window.displayIfNeeded()
+if let output = ProcessInfo.processInfo.environment["FST_TABLE_CAPTURE"], let bitmap = controller.view.bitmapImageRepForCachingDisplay(in: controller.view.bounds) {
+    controller.view.cacheDisplay(in: controller.view.bounds, to: bitmap)
+    try bitmap.representation(using: .png, properties: [:])!.write(to: URL(fileURLWithPath: output))
+}
+let longTable = "| Name | Value | Description |\n| :--- | ---: | :--- |\n" + (0..<2_000).map { "| Row \($0) | \($0) | 中文说明 and a description that wraps at narrow widths |\n" }.joined()
+let tableStart = ProcessInfo.processInfo.systemUptime
+let longRendered = try MarkdownRenderer.render(longTable, width: 386)
+print(String(format: "2,000 table rows render: %.2f ms", (ProcessInfo.processInfo.systemUptime - tableStart) * 1_000))
+NotificationCenter.default.post(name: NSScrollView.willStartLiveScrollNotification, object: scroll)
+rendered.textStorage?.setAttributedString(longRendered.attributedString)
+rendered.textLayoutManager?.textViewportLayoutController.layoutViewport()
+window.displayIfNeeded()
+samples.removeAll()
+for step in 0..<120 {
+    let began = ProcessInfo.processInfo.systemUptime
+    scroll.contentView.scroll(to: NSPoint(x: 0, y: CGFloat(step * 70)))
+    scroll.reflectScrolledClipView(scroll.contentView)
+    rendered.textLayoutManager?.textViewportLayoutController.layoutViewport()
+    window.displayIfNeeded()
+    samples.append((ProcessInfo.processInfo.systemUptime - began) * 1_000)
+}
+samples.sort()
+print(String(format: "Native table scroll: p50 %.2f ms; p99 %.2f ms; max %.2f ms", samples[60], samples[118], samples[119]))
+expect(rendered.string.contains("1999"), "Large tables keep the last row")
+print("PASS: table resize, large-table viewport layout and scroll traversal")

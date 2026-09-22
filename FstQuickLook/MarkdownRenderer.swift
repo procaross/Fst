@@ -10,38 +10,50 @@ struct MarkdownCodeBlock {
 struct MarkdownRenderResult: @unchecked Sendable {
     let attributedString: NSAttributedString
     let codeBlocks: [MarkdownCodeBlock]
+    let hasTables: Bool
 }
 
 enum MarkdownRenderer {
     enum RenderError: Error { case parseFailed }
 
-    static func render(_ markdown: String) throws -> MarkdownRenderResult {
+    // Swift initializes this once, including when preview workers parse concurrently.
+    private static let registerExtensions: Void = cmark_gfm_core_extensions_ensure_registered()
+
+    static func render(_ markdown: String, width: CGFloat = 786) throws -> MarkdownRenderResult {
+        _ = registerExtensions
         let math = MarkdownMath(markdown)
-        var root: UnsafeMutablePointer<cmark_node>?
-        math.text.withCString { buffer in
-            root = cmark_parse_document(buffer, strlen(buffer), CMARK_OPT_SAFE)
+        guard let parser = cmark_parser_new(CMARK_OPT_DEFAULT) else { throw RenderError.parseFailed }
+        defer { cmark_parser_free(parser) }
+        for name in ["table", "strikethrough", "tasklist", "autolink"] {
+            if let ext = cmark_find_syntax_extension(name) { cmark_parser_attach_syntax_extension(parser, ext) }
         }
-        guard let root else { throw RenderError.parseFailed }
+        math.text.withCString { buffer in
+            cmark_parser_feed(parser, buffer, strlen(buffer))
+        }
+        guard let root = cmark_parser_finish(parser) else { throw RenderError.parseFailed }
         defer { cmark_node_free(root) }
 
-        let builder = Builder(formulas: math.formulas)
+        let builder = Builder(formulas: math.formulas, width: width)
         builder.renderChildren(of: root, quoteDepth: 0)
         builder.trimTrailingWhitespace()
         return MarkdownRenderResult(attributedString: builder.output.copy() as! NSAttributedString,
-                                    codeBlocks: builder.codeBlocks)
+                                    codeBlocks: builder.codeBlocks, hasTables: builder.hasTables)
     }
 
     private final class Builder {
         let output = NSMutableAttributedString()
         var codeBlocks: [MarkdownCodeBlock] = []
+        var hasTables = false
         let formulas: [MarkdownMath.Formula]
+        let width: CGFloat
+        var listIndent: CGFloat = 0
 
-        init(formulas: [MarkdownMath.Formula]) { self.formulas = formulas }
+        init(formulas: [MarkdownMath.Formula], width: CGFloat) { self.formulas = formulas; self.width = width }
 
         private let bodyFont = NSFont.systemFont(ofSize: 15)
         private let codeFont = NSFont.monospacedSystemFont(ofSize: 13.5, weight: .regular)
 
-        func renderChildren(of parent: UnsafeMutablePointer<cmark_node>, quoteDepth: Int) {
+        func renderChildren(of parent: OpaquePointer, quoteDepth: Int) {
             var node = cmark_node_first_child(parent)
             while let current = node {
                 renderBlock(current, quoteDepth: quoteDepth)
@@ -57,7 +69,11 @@ enum MarkdownRenderer {
             }
         }
 
-        private func renderBlock(_ node: UnsafeMutablePointer<cmark_node>, quoteDepth: Int) {
+        private func renderBlock(_ node: OpaquePointer, quoteDepth: Int) {
+            if cString(cmark_node_get_type_string(node)) == "table" {
+                renderTable(node, quoteDepth: quoteDepth)
+                return
+            }
             switch cmark_node_get_type(node) {
             case CMARK_NODE_DOCUMENT:
                 renderChildren(of: node, quoteDepth: quoteDepth)
@@ -143,7 +159,7 @@ enum MarkdownRenderer {
             }
         }
 
-        private func renderList(_ list: UnsafeMutablePointer<cmark_node>, quoteDepth: Int) {
+        private func renderList(_ list: OpaquePointer, quoteDepth: Int) {
             ensureBlockBoundary()
             let ordered = cmark_node_get_list_type(list) == CMARK_ORDERED_LIST
             var number = max(1, Int(cmark_node_get_list_start(list)))
@@ -153,43 +169,78 @@ enum MarkdownRenderer {
                     item = cmark_node_next(current)
                     continue
                 }
-                let start = output.length
-                let marker = ordered ? "\(number).\t" : "•\t"
+                var start = output.length
+                let task = cString(cmark_node_get_type_string(current)) == "tasklist"
+                let marker = task ? (cmark_gfm_extensions_get_tasklist_item_checked(current) ? "☑\t" : "☐\t") : (ordered ? "\(number).\t" : "•\t")
                 append(marker, attributes: [.font: NSFont.systemFont(ofSize: 15, weight: .medium),
                                              .foregroundColor: quoteDepth > 0 ? PreviewStyle.muted : PreviewStyle.foreground])
 
                 var child = cmark_node_first_child(current)
                 var renderedPrimary = false
+                let indent = CGFloat(quoteDepth * 18) + listIndent
+                let markerWidth = max(24, (String(marker.dropLast()) as NSString).size(withAttributes: [.font: bodyFont]).width + 4)
+                func finishParagraph() {
+                    guard output.length > start else { return }
+                    if !(output.string as NSString).hasSuffix("\n") { append("\n", attributes: baseAttributes()) }
+                    let style = paragraphStyle(quoteDepth: quoteDepth, before: 0, after: 4)
+                    style.firstLineHeadIndent = renderedPrimary ? indent + markerWidth : indent
+                    style.headIndent = indent + markerWidth
+                    style.tabStops = [NSTextTab(textAlignment: .left, location: indent + markerWidth)]
+                    output.addAttribute(.paragraphStyle, value: style, range: NSRange(location: start, length: output.length - start))
+                    start = output.length
+                    renderedPrimary = true
+                }
                 while let currentChild = child {
                     if cmark_node_get_type(currentChild) == CMARK_NODE_PARAGRAPH {
-                        if renderedPrimary { append("\n", attributes: baseAttributes()) }
                         renderInlineChildren(of: currentChild, attributes: baseAttributes(quoteDepth: quoteDepth))
-                        renderedPrimary = true
-                    } else if cmark_node_get_type(currentChild) == CMARK_NODE_LIST {
-                        append("\n", attributes: baseAttributes())
-                        renderList(currentChild, quoteDepth: quoteDepth)
+                        finishParagraph()
                     } else {
+                        finishParagraph()
+                        listIndent += markerWidth
                         renderBlock(currentChild, quoteDepth: quoteDepth)
+                        listIndent -= markerWidth
+                        start = output.length
                     }
                     child = cmark_node_next(currentChild)
                 }
 
-                if output.length == 0 || !(output.string as NSString).hasSuffix("\n") {
-                    append("\n", attributes: baseAttributes())
-                }
-                let style = paragraphStyle(quoteDepth: quoteDepth, before: 0, after: 4)
-                let indent = CGFloat(quoteDepth * 18)
-                style.firstLineHeadIndent = indent
-                style.headIndent = indent + 24
-                style.tabStops = [NSTextTab(textAlignment: .left, location: indent + 24)]
-                output.addAttribute(.paragraphStyle, value: style,
-                                    range: NSRange(location: start, length: output.length - start))
+                finishParagraph()
                 number += 1
                 item = cmark_node_next(current)
             }
         }
 
-        private func renderInlineChildren(of parent: UnsafeMutablePointer<cmark_node>,
+        private func renderTable(_ node: OpaquePointer, quoteDepth: Int) {
+            ensureBlockBoundary()
+            let columns = Int(cmark_gfm_extensions_get_table_columns(node))
+            guard columns > 0 else { return }
+            hasTables = true
+            let rawAlignments = cmark_gfm_extensions_get_table_alignments(node)
+            let alignments: [NSTextAlignment] = (0..<columns).map {
+                switch rawAlignments?[$0] { case 99: return .center; case 114: return .right; default: return .left }
+            }
+            var rows: [[NSAttributedString]] = []
+            var row = cmark_node_first_child(node)
+            while let current = row {
+                var cells: [NSAttributedString] = []
+                var cell = cmark_node_first_child(current)
+                while let currentCell = cell {
+                    let builder = Builder(formulas: formulas, width: width)
+                    let font = NSFont.systemFont(ofSize: 15, weight: rows.isEmpty ? .semibold : .regular)
+                    builder.renderInlineChildren(of: currentCell, attributes: baseAttributes(font: font))
+                    cells.append(builder.output.copy() as! NSAttributedString)
+                    cell = cmark_node_next(currentCell)
+                }
+                while cells.count < columns { cells.append(NSAttributedString(string: "")) }
+                rows.append(Array(cells.prefix(columns)))
+                row = cmark_node_next(current)
+            }
+            let indent = CGFloat(quoteDepth * 18) + listIndent
+            output.append(MarkdownTable.render(rows: rows, alignments: alignments, width: max(100, width - indent), indent: indent))
+            append("\n", attributes: [.font: NSFont.systemFont(ofSize: 6)])
+        }
+
+        private func renderInlineChildren(of parent: OpaquePointer,
                                           attributes: [NSAttributedString.Key: Any]) {
             var node = cmark_node_first_child(parent)
             while let current = node {
@@ -198,14 +249,20 @@ enum MarkdownRenderer {
             }
         }
 
-        private func renderInline(_ node: UnsafeMutablePointer<cmark_node>,
+        private func renderInline(_ node: OpaquePointer,
                                   attributes: [NSAttributedString.Key: Any]) {
+            if cString(cmark_node_get_type_string(node)) == "strikethrough" {
+                var attrs = attributes
+                attrs[.strikethroughStyle] = NSUnderlineStyle.single.rawValue
+                renderInlineChildren(of: node, attributes: attrs)
+                return
+            }
             switch cmark_node_get_type(node) {
             case CMARK_NODE_TEXT:
                 appendMathText(cString(cmark_node_get_literal(node)), attributes: attributes)
 
             case CMARK_NODE_SOFTBREAK:
-                append("\n", attributes: attributes)
+                append(" ", attributes: attributes)
 
             case CMARK_NODE_LINEBREAK:
                 append("\n", attributes: attributes)
@@ -283,7 +340,7 @@ enum MarkdownRenderer {
             return true
         }
 
-        private func plainText(of parent: UnsafeMutablePointer<cmark_node>) -> String {
+        private func plainText(of parent: OpaquePointer) -> String {
             var result = ""
             var node = cmark_node_first_child(parent)
             while let current = node {
@@ -339,7 +396,7 @@ enum MarkdownRenderer {
             style.lineHeightMultiple = lineHeightMultiple
             style.paragraphSpacingBefore = before
             style.paragraphSpacing = after
-            let indent = CGFloat(quoteDepth * 18) + extraIndent
+            let indent = CGFloat(quoteDepth * 18) + extraIndent + listIndent
             style.firstLineHeadIndent = indent
             style.headIndent = indent
             if quoteDepth > 0 { style.tailIndent = -8 }

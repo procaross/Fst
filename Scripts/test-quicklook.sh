@@ -2,10 +2,10 @@
 set -eu
 cd "${0:A:h:h}"
 products="$PWD/build/dd/Build/Products/Release"
-modulemap="$PWD/build/dd/Build/Intermediates.noindex/GeneratedModuleMaps/libcmark.modulemap"
+modulemap="$PWD/Vendor/CMarkGFM/Sources/libcmark/module.modulemap"
 [[ -f "$products/SwiftMath.o" ]] || { print -u2 'Build Release first.'; exit 1; }
 mkdir -p build/quicklook-tests
-swiftc -O -I "$products" -I Vendor/Down/Source/cmark \
+swiftc -O -I "$products" -I Vendor/CMarkGFM/Sources/libcmark \
   -Xcc "-fmodule-map-file=$modulemap" \
   FstQuickLook/*.swift Fst/EditorTheme.swift Fst/EditorPreferences.swift \
   Fst/CustomThemes.swift Fst/SyntaxLexer.swift Fst/Performance.swift \

@@ -19,3 +19,6 @@ tmp/*
 
 __pycache__/
 *.pyc
+
+# Local Swift Package build caches
+.build/

@@ -1,0 +1,6 @@
+module libcmark {
+  header "cmark-gfm.h"
+  header "cmark-gfm-extension_api.h"
+  header "cmark-gfm-core-extensions.h"
+  export *
+}
