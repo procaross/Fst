@@ -1,0 +1,2 @@
+# Keep vendored SwiftMath bytes identical to its pinned upstream revision.
+Vendor/SwiftMath/** -whitespace

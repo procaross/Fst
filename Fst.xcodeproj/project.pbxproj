@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+        F10000000000000000000001 /* SwiftMath in Frameworks */ = {isa = PBXBuildFile; productRef = F10000000000000000000002; };
         E00000000000000000000004 /* CustomThemes.swift in Sources */ = {isa = PBXBuildFile; fileRef = E00000000000000000000005; };
 		F00000000000000000000001 /* libcmark in Frameworks */ = {isa = PBXBuildFile; productRef = F00000000000000000000002 /* libcmark */; };
 		B0000000000000000000000C /* FstQuickLook.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = B00000000000000000000001 /* FstQuickLook.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
@@ -97,6 +98,7 @@
 			isa = PBXFrameworksBuildPhase;
 			files = (
 				F00000000000000000000001 /* libcmark in Frameworks */,
+                F10000000000000000000001 /* SwiftMath in Frameworks */,
 			);
 		};
 /* End PBXFrameworksBuildPhase section */
@@ -175,6 +177,7 @@
 			name = FstQuickLook;
 			packageProductDependencies = (
 				F00000000000000000000002 /* libcmark */,
+                F10000000000000000000002 /* SwiftMath */,
 			);
 			productName = FstQuickLook;
 			productReference = B00000000000000000000001 /* FstQuickLook.appex */;
@@ -205,6 +208,7 @@
 			mainGroup = 000000000000000000000001;
 			packageReferences = (
 				F00000000000000000000003,
+                F10000000000000000000003,
 			);
 			minimizedProjectReferenceProxies = 1;
 			preferredProjectObjectVersion = 90;
@@ -260,9 +264,11 @@
 /* End PBXTargetDependency section */
 
 /* Begin XCLocalSwiftPackageReference section */
+        F10000000000000000000003 = {isa = XCLocalSwiftPackageReference; relativePath = Vendor/SwiftMath; };
 		F00000000000000000000003 /* XCLocalSwiftPackageReference "Down" */ = {isa = XCLocalSwiftPackageReference; relativePath = Vendor/Down; };
 /* End XCLocalSwiftPackageReference section */
 /* Begin XCSwiftPackageProductDependency section */
+        F10000000000000000000002 = {isa = XCSwiftPackageProductDependency; package = F10000000000000000000003; productName = SwiftMath; };
 		F00000000000000000000002 /* libcmark */ = {isa = XCSwiftPackageProductDependency; package = F00000000000000000000003 /* XCLocalSwiftPackageReference "Down" */; productName = libcmark; };
 /* End XCSwiftPackageProductDependency section */
 /* Begin XCBuildConfiguration section */

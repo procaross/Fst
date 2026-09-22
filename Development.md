@@ -35,12 +35,22 @@ The language menu defaults to automatic filename detection. Select a language to
 
 ## Quick Look
 
-Fst embeds a native, sandboxed Quick Look preview extension covering the same declared text/source types as the editor, including SVG. Source previews show selectable, highlighted text and follow system appearance. Markdown files open as a rendered document by default and expose a **Rendered / Source** switch in the preview footer. Rendered Markdown uses the vendored cmark parser and native AppKit text layout, so previews do not start WebKit. Source text/highlighting for Markdown is initialized lazily only after switching to **Source**. Files larger than 1 MiB get an explicitly truncated preview; the extension reads only the prefix and preserves complete Unicode scalars.
+Fst embeds a native, sandboxed Quick Look preview extension covering the same declared text/source types as the editor, including SVG. Source previews show selectable, highlighted text with a fixed GitHub Light palette. Markdown files open as a rendered document by default and expose a **预览 / 源码** switch in the preview footer. Rendered Markdown uses the vendored cmark parser and native AppKit text layout, so previews do not start WebKit. Source text/highlighting for Markdown is initialized lazily only after switching to **源码**. JSON is whitespace-formatted in the background, with input and formatted output each bounded to 8 MiB. Other files retain the 1 MiB limit. Truncation is disclosed and complete Unicode scalars are preserved. The original file is never modified. Both preview modes use TextKit 2 and background syntax coloring. Native SwiftMath attachments support LaTeX math without a browser.
 
 ```sh
 just quicklook-register                    # Signed build, register, and enable the extension
 just quicklook-preview path/to/source.go   # Preview through Quick Look
 ```
+
+For a locally installed Release build (including correct sandbox entitlements):
+
+```sh
+xcodebuild -project Fst.xcodeproj -scheme Fst -configuration Release -derivedDataPath build/dd -destination 'platform=macOS' CODE_SIGN_IDENTITY=- CODE_SIGNING_ALLOWED=YES CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM= build
+Scripts/test-quicklook.sh
+Scripts/install-local.sh
+```
+
+The installer verifies signing/sandboxing, backs up the old whole app, performs a clean copy to `/Applications`, unregisters local build providers, and restarts only this app's read-only preview processes. It does not quit the editor. Do not overlay a Release app onto a Debug app: stale injected dylibs invalidate the signature.
 
 Finder can then preview supported files with Space. Quick Look uses macOS content-type resolution; competing providers and ambiguous extensions (notably `.ts`) can affect provider selection. Fst deliberately registers text/source types rather than taking over video or generic data. The development signing commands use the Xcode project's configured team and require a matching local certificate. Unsigned build commands remain available for ordinary editor development; rebuild/register the signed extension after an unsigned Debug build before testing Finder integration.
 

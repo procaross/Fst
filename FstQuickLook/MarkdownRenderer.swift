@@ -6,7 +6,8 @@ struct MarkdownCodeBlock {
     let language: String?
 }
 
-struct MarkdownRenderResult {
+// The worker finishes all mutation before publishing this immutable result.
+struct MarkdownRenderResult: @unchecked Sendable {
     let attributedString: NSAttributedString
     let codeBlocks: [MarkdownCodeBlock]
 }
@@ -15,14 +16,15 @@ enum MarkdownRenderer {
     enum RenderError: Error { case parseFailed }
 
     static func render(_ markdown: String) throws -> MarkdownRenderResult {
+        let math = MarkdownMath(markdown)
         var root: UnsafeMutablePointer<cmark_node>?
-        markdown.withCString { buffer in
+        math.text.withCString { buffer in
             root = cmark_parse_document(buffer, strlen(buffer), CMARK_OPT_SAFE)
         }
         guard let root else { throw RenderError.parseFailed }
         defer { cmark_node_free(root) }
 
-        let builder = Builder()
+        let builder = Builder(formulas: math.formulas)
         builder.renderChildren(of: root, quoteDepth: 0)
         builder.trimTrailingWhitespace()
         return MarkdownRenderResult(attributedString: builder.output.copy() as! NSAttributedString,
@@ -32,6 +34,9 @@ enum MarkdownRenderer {
     private final class Builder {
         let output = NSMutableAttributedString()
         var codeBlocks: [MarkdownCodeBlock] = []
+        let formulas: [MarkdownMath.Formula]
+
+        init(formulas: [MarkdownMath.Formula]) { self.formulas = formulas }
 
         private let bodyFont = NSFont.systemFont(ofSize: 15)
         private let codeFont = NSFont.monospacedSystemFont(ofSize: 13.5, weight: .regular)
@@ -74,15 +79,21 @@ enum MarkdownRenderer {
                 ensureBlockBoundary()
                 let start = output.length
                 renderInlineChildren(of: node, attributes: baseAttributes())
-                append("\n", attributes: baseAttributes())
-                applyParagraphStyle(from: start, quoteDepth: quoteDepth, before: 0, after: 8)
+                if !(output.string as NSString).hasSuffix("\n") { append("\n", attributes: baseAttributes()) }
+                let range = NSRange(location: start, length: output.length - start)
+                let existing = output.attribute(.paragraphStyle, at: start, effectiveRange: nil) as? NSParagraphStyle
+                if existing?.alignment != .center {
+                    applyParagraphStyle(from: start, quoteDepth: quoteDepth, before: 0, after: 8)
+                } else {
+                    output.addAttribute(.paragraphStyle, value: existing!, range: range)
+                }
 
             case CMARK_NODE_BLOCK_QUOTE:
                 ensureBlockBoundary()
                 let start = output.length
                 renderChildren(of: node, quoteDepth: quoteDepth + 1)
                 if output.length > start {
-                    output.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor,
+                    output.addAttribute(.foregroundColor, value: PreviewStyle.muted,
                                         range: NSRange(location: start, length: output.length - start))
                 }
 
@@ -94,25 +105,36 @@ enum MarkdownRenderer {
                 let start = output.length
                 let literal = cString(cmark_node_get_literal(node))
                 let code = literal.hasSuffix("\n") ? String(literal.dropLast()) : literal
+                let info = cString(cmark_node_get_fence_info(node)).trimmingCharacters(in: .whitespacesAndNewlines)
+                let language = info.split(whereSeparator: { $0.isWhitespace }).first.map(String.init)
+                if ["math", "latex"].contains(language?.lowercased() ?? ""),
+                   appendFormula(latex: code, original: code, display: true) { break }
                 let codeAttrs: [NSAttributedString.Key: Any] = [
-                    .font: codeFont,
-                    .foregroundColor: NSColor.labelColor,
-                    .backgroundColor: NSColor.quaternaryLabelColor.withAlphaComponent(0.17)
+                    .font: codeFont, .foregroundColor: PreviewStyle.foreground
                 ]
-                append(code, attributes: codeAttrs)
+                append(code.isEmpty ? " " : code, attributes: codeAttrs)
                 let codeRange = NSRange(location: start, length: output.length - start)
                 append("\n", attributes: codeAttrs)
-                applyParagraphStyle(from: start, quoteDepth: quoteDepth, before: 4, after: 9,
-                                    lineHeightMultiple: 1.08, extraIndent: 12)
-                let info = cString(cmark_node_get_fence_info(node)).trimmingCharacters(in: .whitespacesAndNewlines)
-                codeBlocks.append(MarkdownCodeBlock(range: codeRange,
-                                                    language: info.split(whereSeparator: { $0.isWhitespace }).first.map(String.init)))
+                applyParagraphStyle(from: start, quoteDepth: quoteDepth, before: 0, after: 0,
+                                    lineHeightMultiple: 1.25, extraIndent: 16)
+                let blockEnd = output.length
+                let text = output.string as NSString
+                var line = start
+                while line < blockEnd {
+                    let range = text.paragraphRange(for: NSRange(location: line, length: 0))
+                    let edges = (line == start ? 1 : 0) | (NSMaxRange(range) >= blockEnd ? 2 : 0)
+                    output.addAttribute(.previewCodeBlock, value: edges, range: range)
+                    line = NSMaxRange(range)
+                }
+                codeBlocks.append(MarkdownCodeBlock(range: codeRange, language: language))
+                if let language { PreviewStyle.highlight(output, range: codeRange, language: "snippet.\(language)") }
+                append("\n", attributes: [.font: NSFont.systemFont(ofSize: 6)])
 
             case CMARK_NODE_THEMATIC_BREAK:
                 ensureBlockBoundary()
                 let start = output.length
                 append("────────────────────────────\n",
-                       attributes: [.font: bodyFont, .foregroundColor: NSColor.separatorColor])
+                       attributes: [.font: bodyFont, .foregroundColor: PreviewStyle.border])
                 applyParagraphStyle(from: start, quoteDepth: quoteDepth, before: 8, after: 8)
 
             case CMARK_NODE_HTML_BLOCK:
@@ -137,7 +159,7 @@ enum MarkdownRenderer {
                 let start = output.length
                 let marker = ordered ? "\(number).\t" : "•\t"
                 append(marker, attributes: [.font: NSFont.systemFont(ofSize: 15, weight: .medium),
-                                             .foregroundColor: NSColor.labelColor])
+                                             .foregroundColor: PreviewStyle.foreground])
 
                 var child = cmark_node_first_child(current)
                 var renderedPrimary = false
@@ -183,7 +205,7 @@ enum MarkdownRenderer {
                                   attributes: [NSAttributedString.Key: Any]) {
             switch cmark_node_get_type(node) {
             case CMARK_NODE_TEXT:
-                append(cString(cmark_node_get_literal(node)), attributes: attributes)
+                appendMathText(cString(cmark_node_get_literal(node)), attributes: attributes)
 
             case CMARK_NODE_SOFTBREAK:
                 append("\n", attributes: attributes)
@@ -194,7 +216,7 @@ enum MarkdownRenderer {
             case CMARK_NODE_CODE:
                 var attrs = attributes
                 attrs[.font] = codeFont
-                attrs[.backgroundColor] = NSColor.quaternaryLabelColor.withAlphaComponent(0.18)
+                attrs[.backgroundColor] = PreviewStyle.inlineCode
                 append(cString(cmark_node_get_literal(node)), attributes: attrs)
 
             case CMARK_NODE_EMPH:
@@ -211,14 +233,14 @@ enum MarkdownRenderer {
                 var attrs = attributes
                 let urlText = cString(cmark_node_get_url(node))
                 if let url = URL(string: urlText) { attrs[.link] = url }
-                attrs[.foregroundColor] = NSColor.linkColor
+                attrs[.foregroundColor] = PreviewStyle.link
                 renderInlineChildren(of: node, attributes: attrs)
 
             case CMARK_NODE_IMAGE:
                 var attrs = attributes
                 let target = cString(cmark_node_get_url(node))
                 if let url = URL(string: target) { attrs[.link] = url }
-                attrs[.foregroundColor] = NSColor.secondaryLabelColor
+                attrs[.foregroundColor] = PreviewStyle.muted
                 append("[image: \(plainText(of: node).isEmpty ? target : plainText(of: node))]", attributes: attrs)
 
             case CMARK_NODE_HTML_INLINE:
@@ -228,6 +250,39 @@ enum MarkdownRenderer {
             default:
                 renderInlineChildren(of: node, attributes: attributes)
             }
+        }
+
+        private func appendMathText(_ text: String, attributes: [NSAttributedString.Key: Any]) {
+            guard !formulas.isEmpty, text.contains(MarkdownMath.markerStart) else {
+                append(text, attributes: attributes); return
+            }
+            var remainder = text[...]
+            while let start = remainder.range(of: MarkdownMath.markerStart),
+                  let end = remainder[start.upperBound...].range(of: MarkdownMath.markerEnd),
+                  let index = Int(remainder[start.upperBound..<end.lowerBound]), formulas.indices.contains(index) {
+                append(String(remainder[..<start.lowerBound]), attributes: attributes)
+                let formula = formulas[index]
+                if !appendFormula(latex: formula.latex, original: formula.original, display: formula.display) {
+                    append(formula.original, attributes: attributes)
+                }
+                remainder = remainder[end.upperBound...]
+            }
+            append(String(remainder), attributes: attributes)
+        }
+
+        @discardableResult
+        private func appendFormula(latex: String, original: String, display: Bool) -> Bool {
+            guard let math = MathRenderer.attachment(latex: latex, display: display) else { return false }
+            if display { ensureBlockBoundary() }
+            let start = output.length
+            output.append(math)
+            if display {
+                append("\n", attributes: baseAttributes())
+                let style = paragraphStyle(quoteDepth: 0, before: 12, after: 12)
+                style.alignment = .center
+                output.addAttribute(.paragraphStyle, value: style, range: NSRange(location: start, length: output.length - start))
+            }
+            return true
         }
 
         private func plainText(of parent: UnsafeMutablePointer<cmark_node>) -> String {
@@ -245,7 +300,7 @@ enum MarkdownRenderer {
         }
 
         private func baseAttributes(font: NSFont? = nil) -> [NSAttributedString.Key: Any] {
-            [.font: font ?? bodyFont, .foregroundColor: NSColor.labelColor]
+            [.font: font ?? bodyFont, .foregroundColor: PreviewStyle.foreground]
         }
 
         private func font(from attributes: [NSAttributedString.Key: Any],
