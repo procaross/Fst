@@ -15,7 +15,7 @@ Open the Xcode project and run the Fst scheme. The window is just an AppKit text
 
 Fst supports VS Code color-theme `.json` and `.jsonc` files. In Settings, click **Open Themes Folder**, copy theme files there, then click **Reload Themes**. Choose each custom theme independently in the light and dark appearance menus. Opening Settings also refreshes the list. Edit a theme in Fst and reload to see changes in open editors.
 
-Themes live in the app’s Application Support directory under `Fst/Themes`. In the sandboxed build this is `~/Library/Containers/com.mikker.Fst/Data/Library/Application Support/Fst/Themes`; the Settings button opens the correct location. Theme files remain the source of truth. Missing or invalid selected themes fall back to a built-in palette, with errors shown in Settings.
+Themes live in the app’s Application Support directory under `Fst/Themes`. In the sandboxed build this fork uses `~/Library/Containers/com.procaross.Fst/Data/Library/Application Support/Fst/Themes`; the Settings button opens the correct location. Theme files remain the source of truth. Missing or invalid selected themes fall back to a built-in palette, with errors shown in Settings.
 
 Supported colors: editor background/foreground, cursor, selection (including alpha), line numbers, and basic `tokenColors` for comments, strings, keywords/storage, and numeric constants. JSON comments and trailing commas are accepted. Relative `include` files are supported inside the Themes folder (up to eight levels, 2 MiB per file). Copy any included files alongside the theme. Themes are cached; built-in themes do not scan this folder during launch.
 
@@ -35,7 +35,7 @@ The language menu defaults to automatic filename detection. Select a language to
 
 ## Quick Look
 
-Fst embeds a native, sandboxed Quick Look preview extension covering the same declared text/source types as the editor, including SVG. Previews show selectable, highlighted source text and follow system appearance. They use default preview typography, independent of the main app's settings. Files larger than 1 MiB get an explicitly truncated preview; the extension reads only the prefix and preserves complete Unicode scalars.
+Fst embeds a native, sandboxed Quick Look preview extension covering the same declared text/source types as the editor, including SVG. Source previews show selectable, highlighted text and follow system appearance. Markdown files open as a rendered document by default and expose a **Rendered / Source** switch in the preview footer. Rendered Markdown uses the vendored Down/cmark parser and a native WebKit view; JavaScript is disabled. Files larger than 1 MiB get an explicitly truncated preview; the extension reads only the prefix and preserves complete Unicode scalars.
 
 ```sh
 just quicklook-register                    # Signed build, register, and enable the extension

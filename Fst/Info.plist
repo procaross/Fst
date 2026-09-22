@@ -611,15 +611,5 @@
 			</dict>
 		</dict>
 	</array>
-	<key>SUFeedURL</key>
-	<string>https://github.com/mikker/Fst/releases/latest/download/appcast.xml</string>
-	<key>SUEnableInstallerLauncherService</key>
-	<true/>
-	<key>SUEnableDownloaderService</key>
-	<true/>
-	<key>SUEnableAutomaticChecks</key>
-	<true/>
-	<key>SUPublicEDKey</key>
-	<string>8b52WldBpZf1zo/QCInHFKUy+WWwrzhwFzlHa+9UpvU=</string>
 </dict>
 </plist>

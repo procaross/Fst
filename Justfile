@@ -80,12 +80,12 @@ profile-trace fixture="ten-mib.swift": fixtures
 # Register the embedded Quick Look extension after a signed local build.
 quicklook-register: build-signed
   pluginkit -a '{{app}}/Contents/PlugIns/FstQuickLook.appex'
-  pluginkit -e use -i com.mikker.Fst.QuickLook
-  pluginkit -m -v -i com.mikker.Fst.QuickLook
+  pluginkit -e use -i com.procaross.Fst.QuickLook
+  pluginkit -m -v -i com.procaross.Fst.QuickLook
 
 # Build with the project's development signing settings for Quick Look testing.
 build-signed:
-  Scripts/agent-build.sh build -project {{project}} -scheme {{scheme}} -configuration Debug -destination 'platform=macOS'
+  Scripts/agent-build.sh build -project {{project}} -scheme {{scheme}} -configuration Debug -destination 'platform=macOS' CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM=
 
 # Open a Finder-style Quick Look preview using the registered extension.
 quicklook-preview file="build/fixtures/small.swift": fixtures quicklook-register
@@ -93,4 +93,5 @@ quicklook-preview file="build/fixtures/small.swift": fixtures quicklook-register
 
 # Build, sign, and notarize locally, then publish to GitHub and update Homebrew.
 release version:
-  Scripts/release.sh {{quote(version)}}
+  @echo 'Upstream release automation is disabled in this fork; configure fork-specific signing and release destinations first.' >&2
+  @exit 1

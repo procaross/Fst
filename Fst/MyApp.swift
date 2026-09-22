@@ -1,9 +1,7 @@
 import AppKit
-import Sparkle
 
 @main
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
-    private lazy var updater = SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil)
     private var settingsController: SettingsWindowController?
 
     static func main() {
@@ -30,8 +28,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
         let app = submenu("Fst")
         item(app, "About Fst", #selector(NSApplication.orderFrontStandardAboutPanel(_:)))
-        let updates = app.addItem(withTitle: "Check for Updates…", action: #selector(checkForUpdates(_:)), keyEquivalent: "")
-        updates.target = self
         app.addItem(.separator())
         let settings = app.addItem(withTitle: "Settings…", action: #selector(showSettings(_:)), keyEquivalent: ",")
         settings.target = self
@@ -74,12 +70,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         FileHandle.standardOutput.write(Data("SIGNAL:READY\n".utf8))
-        // Keep updater initialization off the first-window display path.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in _ = self?.updater }
-    }
-
-    @objc private func checkForUpdates(_ sender: Any?) {
-        updater.checkForUpdates(sender)
     }
 
     @objc private func showSettings(_ sender: Any?) {

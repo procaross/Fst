@@ -1,5 +1,11 @@
 # Releases
 
+The upstream release automation is intentionally disabled in this fork. It targets `mikker/Fst`, `mikker/homebrew-tap`, and the upstream Sparkle signing setup, none of which should be used for this fork.
+
+Configure fork-specific signing, GitHub release destinations, and any distribution/update mechanism before re-enabling `just release`.
+
+## Upstream reference
+
 Run `just release 0.1.1` from a clean, up-to-date `main` checkout. Like Moves, releases run on your Mac using your existing Keychain credentials. The command tests, builds a universal app, signs with Developer ID, notarizes and staples it, signs the ZIP with Sparkle, creates a version tag, publishes the GitHub release and appcast, and updates `mikker/homebrew-tap`.
 
 You need Xcode 26+, Python 3.11+, `gh`, GitHub SSH access, your Developer ID Application identity, the `TunaNotary` notarization profile, and Fst’s Sparkle key (Keychain account `com.mikker.Fst`). These are already configured on this Mac. Override `NOTARYTOOL_PROFILE` to use another profile. No GitHub Actions secrets are required. CI only builds and tests pull requests and main.

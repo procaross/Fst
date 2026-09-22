@@ -7,8 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-        E00000000000000000000001 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = E00000000000000000000002 /* Sparkle */; };
         E00000000000000000000004 /* CustomThemes.swift in Sources */ = {isa = PBXBuildFile; fileRef = E00000000000000000000005; };
+		F00000000000000000000001 /* Down in Frameworks */ = {isa = PBXBuildFile; productRef = F00000000000000000000002 /* Down */; };
 		B0000000000000000000000C /* FstQuickLook.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = B00000000000000000000001 /* FstQuickLook.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		D00000000000000000000000 /* Fst/EditorPreferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000000 /* Fst/EditorPreferences.swift */; };
 		D00000000000000000000001 /* Fst/EditorTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000001 /* Fst/EditorTheme.swift */; };
@@ -91,12 +91,12 @@
 		000000000000000130000000 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			files = (
-                E00000000000000000000001,
 			);
 		};
 		B00000000000000000000006 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			files = (
+				F00000000000000000000001 /* Down in Frameworks */,
 			);
 		};
 /* End PBXFrameworksBuildPhase section */
@@ -155,7 +155,6 @@
 				000000000000000000000010 /* Fst */,
 			);
 			name = Fst;
-            packageProductDependencies = (E00000000000000000000002,);
 			productName = Fst;
 			productReference = 000000000000000000000120 /* Fst.app */;
 			productType = "com.apple.product-type.application";
@@ -174,6 +173,9 @@
 				B00000000000000000000002 /* FstQuickLook */,
 			);
 			name = FstQuickLook;
+			packageProductDependencies = (
+				F00000000000000000000002 /* Down */,
+			);
 			productName = FstQuickLook;
 			productReference = B00000000000000000000001 /* FstQuickLook.appex */;
 			productType = "com.apple.product-type.app-extension";
@@ -201,7 +203,9 @@
 				Base,
 			);
 			mainGroup = 000000000000000000000001;
-            packageReferences = (E00000000000000000000003,);
+			packageReferences = (
+				F00000000000000000000003,
+			);
 			minimizedProjectReferenceProxies = 1;
 			preferredProjectObjectVersion = 90;
 			productRefGroup = 000000000000000000000020 /* Products */;
@@ -255,11 +259,11 @@
 		};
 /* End PBXTargetDependency section */
 
-/* Begin XCRemoteSwiftPackageReference section */
-        E00000000000000000000003 = {isa = XCRemoteSwiftPackageReference; repositoryURL = "https://github.com/sparkle-project/Sparkle"; requirement = {kind = exactVersion; version = 2.9.6; }; };
-/* End XCRemoteSwiftPackageReference section */
+/* Begin XCLocalSwiftPackageReference section */
+		F00000000000000000000003 /* XCLocalSwiftPackageReference "Down" */ = {isa = XCLocalSwiftPackageReference; relativePath = Vendor/Down; };
+/* End XCLocalSwiftPackageReference section */
 /* Begin XCSwiftPackageProductDependency section */
-        E00000000000000000000002 = {isa = XCSwiftPackageProductDependency; package = E00000000000000000000003; productName = Sparkle; };
+		F00000000000000000000002 /* Down */ = {isa = XCSwiftPackageProductDependency; package = F00000000000000000000003 /* XCLocalSwiftPackageReference "Down" */; productName = Down; };
 /* End XCSwiftPackageProductDependency section */
 /* Begin XCBuildConfiguration section */
 		000000000000000011000000 /* Debug configuration for PBXProject "Fst" */ = {
@@ -397,7 +401,7 @@
 				INFOPLIST_FILE = Fst/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/../Frameworks";
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.mikker.Fst;
+				PRODUCT_BUNDLE_IDENTIFIER = com.procaross.Fst;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
 				SDKROOT = macosx;
@@ -425,7 +429,7 @@
 				INFOPLIST_FILE = Fst/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/../Frameworks";
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.mikker.Fst;
+				PRODUCT_BUNDLE_IDENTIFIER = com.procaross.Fst;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
 				SDKROOT = macosx;
@@ -456,7 +460,7 @@
 					"@executable_path/../../../../Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.mikker.Fst.QuickLook;
+				PRODUCT_BUNDLE_IDENTIFIER = com.procaross.Fst.QuickLook;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = macosx;
 				SKIP_INSTALL = YES;
@@ -483,7 +487,7 @@
 					"@executable_path/../../../../Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.mikker.Fst.QuickLook;
+				PRODUCT_BUNDLE_IDENTIFIER = com.procaross.Fst.QuickLook;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = macosx;
 				SKIP_INSTALL = YES;
