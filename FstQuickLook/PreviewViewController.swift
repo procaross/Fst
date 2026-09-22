@@ -11,14 +11,14 @@ private final class PreviewEditorView: NSTextView {
 }
 
 final class PreviewViewController: NSViewController, QLPreviewingController {
-    private let sourceScrollView = NSScrollView()
-    private let sourceTextView = PreviewEditorView()
+    private var sourceScrollView: NSScrollView?
+    private var sourceTextView: PreviewEditorView?
     private let renderedScrollView = NSScrollView()
-    private let renderedTextView = PreviewEditorView()
+    private let renderedTextView = PreviewEditorView(usingTextLayoutManager: true)
     private let modeControl = NSSegmentedControl(labels: ["Rendered", "Source"], trackingMode: .selectOne, target: nil, action: nil)
     private let note = NSTextField(labelWithString: "")
 
-    private var highlighter: SyntaxHighlighter!
+    private var highlighter: SyntaxHighlighter?
     private var request = 0
     private var isMarkdown = false
     private var sourceLoaded = false
@@ -26,7 +26,6 @@ final class PreviewViewController: NSViewController, QLPreviewingController {
     private var currentFilename = ""
 
     override func loadView() {
-        configureSourceView()
         configureRenderedView()
 
         modeControl.selectedSegment = 0
@@ -45,15 +44,11 @@ final class PreviewViewController: NSViewController, QLPreviewingController {
         footer.spacing = 10
 
         view = NSView(frame: NSRect(x: 0, y: 0, width: 860, height: 640))
-        for child in [sourceScrollView, renderedScrollView, footer] {
+        for child in [renderedScrollView, footer] {
             child.translatesAutoresizingMaskIntoConstraints = false
             view.addSubview(child)
         }
         NSLayoutConstraint.activate([
-            sourceScrollView.topAnchor.constraint(equalTo: view.topAnchor),
-            sourceScrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            sourceScrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            sourceScrollView.bottomAnchor.constraint(equalTo: footer.topAnchor, constant: -4),
             renderedScrollView.topAnchor.constraint(equalTo: view.topAnchor),
             renderedScrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             renderedScrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
@@ -64,13 +59,10 @@ final class PreviewViewController: NSViewController, QLPreviewingController {
             footer.heightAnchor.constraint(greaterThanOrEqualToConstant: 24)
         ])
 
-        highlighter = SyntaxHighlighter(textView: sourceTextView)
-        sourceTextView.appearanceChanged = { [weak self] in self?.applySourceTheme() }
         renderedTextView.appearanceChanged = { [weak self] in
             self?.renderedTextView.backgroundColor = .textBackgroundColor
         }
-        applySourceTheme()
-        showSource()
+        showRendered()
     }
 
     func preparePreviewOfFile(at url: URL, completionHandler handler: @escaping (Error?) -> Void) {
@@ -93,15 +85,15 @@ final class PreviewViewController: NSViewController, QLPreviewingController {
                 note.stringValue = preview.truncated ? "Preview limited to the first 1 MiB." : url.lastPathComponent
 
                 if isMarkdown {
+                    let firstPaintText = Self.markdownFirstPaintPrefix(preview.text)
                     let rendered = try await Task.detached(priority: .userInitiated) {
                         try Performance.measure("Markdown native render") {
-                            try MarkdownRenderer.render(preview.text)
+                            try MarkdownRenderer.render(firstPaintText)
                         }
                     }.value
                     guard current == request else { handler(CocoaError(.userCancelled)); return }
 
-                    renderedTextView.textStorage?.setAttributedString(rendered.attributedString)
-                    renderedTextView.setSelectedRange(NSRange(location: 0, length: 0))
+                    installRenderedResult(rendered, resetToTop: true)
                     modeControl.selectedSegment = 0
                     showRendered()
                     preferredContentSize = NSSize(width: 860, height: 640)
@@ -116,6 +108,25 @@ final class PreviewViewController: NSViewController, QLPreviewingController {
                         // after that layout pass so a reused preview never opens mid-document.
                         self.scrollRenderedToTop()
                         self.highlightRenderedCodeBlocks(rendered.codeBlocks)
+                    }
+
+                    if firstPaintText.utf8.count < preview.text.utf8.count {
+                        let fullText = preview.text
+                        Task { @MainActor [weak self] in
+                            do {
+                                let full = try await Task.detached(priority: .userInitiated) {
+                                    try Performance.measure("Markdown full render") {
+                                        try MarkdownRenderer.render(fullText)
+                                    }
+                                }.value
+                                guard let self, current == self.request else { return }
+                                self.installRenderedResult(full, resetToTop: false)
+                                self.highlightRenderedCodeBlocks(full.codeBlocks)
+                            } catch {
+                                // The already-visible first paint remains useful if the deferred
+                                // full render fails or the request is replaced.
+                            }
+                        }
                     }
                 } else {
                     loadSourceIfNeeded()
@@ -140,26 +151,6 @@ final class PreviewViewController: NSViewController, QLPreviewingController {
         }
     }
 
-    private func configureSourceView() {
-        sourceScrollView.hasVerticalScroller = true
-        sourceScrollView.hasHorizontalScroller = true
-        sourceScrollView.autohidesScrollers = true
-        sourceScrollView.documentView = sourceTextView
-
-        sourceTextView.isEditable = false
-        sourceTextView.isRichText = false
-        sourceTextView.isSelectable = true
-        sourceTextView.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
-        sourceTextView.textContainerInset = NSSize(width: 16, height: 16)
-        sourceTextView.isHorizontallyResizable = true
-        sourceTextView.isVerticallyResizable = true
-        sourceTextView.autoresizingMask = [.width]
-        sourceTextView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
-        sourceTextView.textContainer?.widthTracksTextView = false
-        sourceTextView.textContainer?.containerSize = sourceTextView.maxSize
-        sourceTextView.layoutManager?.allowsNonContiguousLayout = true
-    }
-
     private func configureRenderedView() {
         renderedScrollView.hasVerticalScroller = true
         renderedScrollView.hasHorizontalScroller = false
@@ -180,7 +171,6 @@ final class PreviewViewController: NSViewController, QLPreviewingController {
         renderedTextView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         renderedTextView.textContainer?.widthTracksTextView = true
         renderedTextView.textContainer?.containerSize = NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude)
-        renderedTextView.layoutManager?.allowsNonContiguousLayout = true
         renderedTextView.linkTextAttributes = [
             .foregroundColor: NSColor.linkColor,
             .underlineStyle: NSUnderlineStyle.single.rawValue
@@ -188,6 +178,7 @@ final class PreviewViewController: NSViewController, QLPreviewingController {
     }
 
     private func applySourceTheme() {
+        guard let sourceTextView else { return }
         let theme = EditorTheme.current(for: sourceTextView.effectiveAppearance)
         sourceTextView.backgroundColor = theme.background
         sourceTextView.textColor = theme.foreground
@@ -196,31 +187,86 @@ final class PreviewViewController: NSViewController, QLPreviewingController {
 
     private func loadSourceIfNeeded() {
         guard !sourceLoaded else { return }
+        installSourceViewIfNeeded()
+        guard let sourceTextView else { return }
         sourceTextView.string = currentText
-        highlighter.setLanguage(filename: currentFilename)
+        highlighter?.setLanguage(filename: currentFilename)
         sourceTextView.scrollToBeginningOfDocument(nil)
         sourceLoaded = true
     }
 
+    private func installSourceViewIfNeeded() {
+        guard sourceTextView == nil else { return }
+
+        let scrollView = NSScrollView()
+        let textView = PreviewEditorView(usingTextLayoutManager: false)
+        scrollView.hasVerticalScroller = true
+        scrollView.hasHorizontalScroller = true
+        scrollView.autohidesScrollers = true
+        scrollView.documentView = textView
+
+        textView.isEditable = false
+        textView.isRichText = false
+        textView.isSelectable = true
+        textView.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
+        textView.textContainerInset = NSSize(width: 16, height: 16)
+        textView.isHorizontallyResizable = true
+        textView.isVerticallyResizable = true
+        textView.autoresizingMask = [.width]
+        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude,
+                                  height: CGFloat.greatestFiniteMagnitude)
+        textView.textContainer?.widthTracksTextView = false
+        textView.textContainer?.containerSize = textView.maxSize
+        textView.layoutManager?.allowsNonContiguousLayout = true
+        textView.appearanceChanged = { [weak self] in self?.applySourceTheme() }
+
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(scrollView, positioned: .above, relativeTo: renderedScrollView)
+        NSLayoutConstraint.activate([
+            scrollView.topAnchor.constraint(equalTo: view.topAnchor),
+            scrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: renderedScrollView.bottomAnchor)
+        ])
+
+        sourceScrollView = scrollView
+        sourceTextView = textView
+        highlighter = SyntaxHighlighter(textView: textView)
+        applySourceTheme()
+    }
+
     private func showRendered() {
         renderedScrollView.isHidden = false
-        sourceScrollView.isHidden = true
+        sourceScrollView?.isHidden = true
+    }
+
+    private func installRenderedResult(_ result: MarkdownRenderResult, resetToTop: Bool) {
+        let origin = renderedScrollView.contentView.bounds.origin
+        renderedTextView.textStorage?.setAttributedString(result.attributedString)
+        if resetToTop || origin.y <= 0 {
+            scrollRenderedToTop()
+        } else {
+            renderedScrollView.contentView.scroll(to: origin)
+            renderedScrollView.reflectScrolledClipView(renderedScrollView.contentView)
+        }
     }
 
     private func scrollRenderedToTop() {
-        guard let container = renderedTextView.textContainer else { return }
-        renderedTextView.layoutManager?.ensureLayout(for: container)
+        // TextKit 2 lays out only the viewport. Asking an NSLayoutManager to lay out the
+        // whole container turns a 1 MiB preview into hundreds of milliseconds of work.
+        renderedTextView.setSelectedRange(NSRange(location: 0, length: 0))
+        renderedTextView.scrollRangeToVisible(NSRange(location: 0, length: 0))
         renderedScrollView.contentView.scroll(to: .zero)
         renderedScrollView.reflectScrolledClipView(renderedScrollView.contentView)
     }
 
     private func showSource() {
         renderedScrollView.isHidden = true
-        sourceScrollView.isHidden = false
+        sourceScrollView?.isHidden = false
     }
 
     private func highlightRenderedCodeBlocks(_ blocks: [MarkdownCodeBlock]) {
-        guard let layout = renderedTextView.layoutManager else { return }
+        guard let storage = renderedTextView.textStorage else { return }
         let theme = EditorTheme.current(for: renderedTextView.effectiveAppearance)
         let fullText = renderedTextView.string as NSString
 
@@ -250,12 +296,24 @@ final class PreviewViewController: NSViewController, QLPreviewingController {
                     }
                     let range = NSRange(location: block.range.location + token.range.location,
                                         length: token.range.length)
-                    layout.addTemporaryAttribute(.foregroundColor, value: color, forCharacterRange: range)
+                    storage.addAttribute(.foregroundColor, value: color, range: range)
                 }
                 offset = result.end
                 state = result.state
             }
         }
+    }
+
+    private static func markdownFirstPaintPrefix(_ markdown: String) -> String {
+        let characterLimit = 32_768
+        guard let cut = markdown.index(markdown.startIndex,
+                                       offsetBy: characterLimit,
+                                       limitedBy: markdown.endIndex),
+              cut < markdown.endIndex else { return markdown }
+
+        let prefix = markdown[..<cut]
+        guard let newline = prefix.lastIndex(of: "\n") else { return String(prefix) }
+        return String(prefix[...newline])
     }
 
     private static func isMarkdownFile(_ url: URL) -> Bool {
