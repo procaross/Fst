@@ -78,8 +78,8 @@ enum MarkdownRenderer {
             case CMARK_NODE_PARAGRAPH:
                 ensureBlockBoundary()
                 let start = output.length
-                renderInlineChildren(of: node, attributes: baseAttributes())
-                if !(output.string as NSString).hasSuffix("\n") { append("\n", attributes: baseAttributes()) }
+                renderInlineChildren(of: node, attributes: baseAttributes(quoteDepth: quoteDepth))
+                if !(output.string as NSString).hasSuffix("\n") { append("\n", attributes: baseAttributes(quoteDepth: quoteDepth)) }
                 let range = NSRange(location: start, length: output.length - start)
                 let existing = output.attribute(.paragraphStyle, at: start, effectiveRange: nil) as? NSParagraphStyle
                 if existing?.alignment != .center {
@@ -90,12 +90,9 @@ enum MarkdownRenderer {
 
             case CMARK_NODE_BLOCK_QUOTE:
                 ensureBlockBoundary()
-                let start = output.length
+                // Apply muted color to quote prose when creating it, not to the whole
+                // subtree: headings, links and syntax-colored code keep their own colors.
                 renderChildren(of: node, quoteDepth: quoteDepth + 1)
-                if output.length > start {
-                    output.addAttribute(.foregroundColor, value: PreviewStyle.muted,
-                                        range: NSRange(location: start, length: output.length - start))
-                }
 
             case CMARK_NODE_LIST:
                 renderList(node, quoteDepth: quoteDepth)
@@ -142,7 +139,7 @@ enum MarkdownRenderer {
                 break
 
             default:
-                renderInline(node, attributes: baseAttributes())
+                renderInline(node, attributes: baseAttributes(quoteDepth: quoteDepth))
             }
         }
 
@@ -159,14 +156,14 @@ enum MarkdownRenderer {
                 let start = output.length
                 let marker = ordered ? "\(number).\t" : "•\t"
                 append(marker, attributes: [.font: NSFont.systemFont(ofSize: 15, weight: .medium),
-                                             .foregroundColor: PreviewStyle.foreground])
+                                             .foregroundColor: quoteDepth > 0 ? PreviewStyle.muted : PreviewStyle.foreground])
 
                 var child = cmark_node_first_child(current)
                 var renderedPrimary = false
                 while let currentChild = child {
                     if cmark_node_get_type(currentChild) == CMARK_NODE_PARAGRAPH {
                         if renderedPrimary { append("\n", attributes: baseAttributes()) }
-                        renderInlineChildren(of: currentChild, attributes: baseAttributes())
+                        renderInlineChildren(of: currentChild, attributes: baseAttributes(quoteDepth: quoteDepth))
                         renderedPrimary = true
                     } else if cmark_node_get_type(currentChild) == CMARK_NODE_LIST {
                         append("\n", attributes: baseAttributes())
@@ -216,6 +213,7 @@ enum MarkdownRenderer {
             case CMARK_NODE_CODE:
                 var attrs = attributes
                 attrs[.font] = codeFont
+                attrs[.foregroundColor] = PreviewStyle.foreground
                 attrs[.backgroundColor] = PreviewStyle.inlineCode
                 append(cString(cmark_node_get_literal(node)), attributes: attrs)
 
@@ -299,8 +297,8 @@ enum MarkdownRenderer {
             return result
         }
 
-        private func baseAttributes(font: NSFont? = nil) -> [NSAttributedString.Key: Any] {
-            [.font: font ?? bodyFont, .foregroundColor: PreviewStyle.foreground]
+        private func baseAttributes(font: NSFont? = nil, quoteDepth: Int = 0) -> [NSAttributedString.Key: Any] {
+            [.font: font ?? bodyFont, .foregroundColor: quoteDepth > 0 ? PreviewStyle.muted : PreviewStyle.foreground]
         }
 
         private func font(from attributes: [NSAttributedString.Key: Any],
