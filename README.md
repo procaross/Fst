@@ -4,7 +4,7 @@ A fast, minimal native macOS text editor plus developer-focused Quick Look previ
 
 In Finder, press Space on source files to get Fst's selectable syntax-highlighted preview. Markdown files open as rendered documents and include a **Rendered / Source** switch, so a README can be read normally or inspected as Markdown without leaving Quick Look.
 
-The Markdown renderer is bundled locally with the app (Down + cmark), works offline, follows light/dark appearance, and does not execute JavaScript.
+The Markdown renderer is bundled locally with the app and uses cmark plus native AppKit text layout. It works offline and does not start WebKit or execute JavaScript.
 
 ### Development
 
@@ -14,4 +14,4 @@ The fork uses bundle identifiers `com.procaross.Fst` and `com.procaross.Fst.Quic
 
 ### License
 
-Fst is MIT licensed. The vendored Down/cmark dependency and its license are under `Vendor/Down`.
+Fst is MIT licensed. The vendored cmark source and upstream licenses are under `Vendor/Down`.

@@ -3,7 +3,7 @@
 import PackageDescription
 
 let package = Package(
-    name: "Down",
+    name: "FstMarkdownCore",
     platforms: [
         .macOS("10.11"),
         .iOS("9.0"),
@@ -11,8 +11,8 @@ let package = Package(
     ],
     products: [
         .library(
-            name: "Down",
-            targets: ["Down"]
+            name: "libcmark",
+            targets: ["libcmark"]
         )
     ],
     targets: [
@@ -22,12 +22,6 @@ let package = Package(
             path: "Source/cmark",
             exclude: ["include"],
             publicHeadersPath: "./"
-        ),
-        .target(
-            name: "Down",
-            dependencies: ["libcmark"],
-            path: "Source/",
-            exclude: ["cmark", "Down.h"]
         )
     ],
     swiftLanguageVersions: [.v5]

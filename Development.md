@@ -35,7 +35,7 @@ The language menu defaults to automatic filename detection. Select a language to
 
 ## Quick Look
 
-Fst embeds a native, sandboxed Quick Look preview extension covering the same declared text/source types as the editor, including SVG. Source previews show selectable, highlighted text and follow system appearance. Markdown files open as a rendered document by default and expose a **Rendered / Source** switch in the preview footer. Rendered Markdown uses the vendored Down/cmark parser and a native WebKit view; JavaScript is disabled. Files larger than 1 MiB get an explicitly truncated preview; the extension reads only the prefix and preserves complete Unicode scalars.
+Fst embeds a native, sandboxed Quick Look preview extension covering the same declared text/source types as the editor, including SVG. Source previews show selectable, highlighted text and follow system appearance. Markdown files open as a rendered document by default and expose a **Rendered / Source** switch in the preview footer. Rendered Markdown uses the vendored cmark parser and native AppKit text layout, so previews do not start WebKit. Source text/highlighting for Markdown is initialized lazily only after switching to **Source**. Files larger than 1 MiB get an explicitly truncated preview; the extension reads only the prefix and preserves complete Unicode scalars.
 
 ```sh
 just quicklook-register                    # Signed build, register, and enable the extension

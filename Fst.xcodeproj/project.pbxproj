@@ -8,7 +8,7 @@
 
 /* Begin PBXBuildFile section */
         E00000000000000000000004 /* CustomThemes.swift in Sources */ = {isa = PBXBuildFile; fileRef = E00000000000000000000005; };
-		F00000000000000000000001 /* Down in Frameworks */ = {isa = PBXBuildFile; productRef = F00000000000000000000002 /* Down */; };
+		F00000000000000000000001 /* libcmark in Frameworks */ = {isa = PBXBuildFile; productRef = F00000000000000000000002 /* libcmark */; };
 		B0000000000000000000000C /* FstQuickLook.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = B00000000000000000000001 /* FstQuickLook.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		D00000000000000000000000 /* Fst/EditorPreferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000000 /* Fst/EditorPreferences.swift */; };
 		D00000000000000000000001 /* Fst/EditorTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000001 /* Fst/EditorTheme.swift */; };
@@ -96,7 +96,7 @@
 		B00000000000000000000006 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			files = (
-				F00000000000000000000001 /* Down in Frameworks */,
+				F00000000000000000000001 /* libcmark in Frameworks */,
 			);
 		};
 /* End PBXFrameworksBuildPhase section */
@@ -174,7 +174,7 @@
 			);
 			name = FstQuickLook;
 			packageProductDependencies = (
-				F00000000000000000000002 /* Down */,
+				F00000000000000000000002 /* libcmark */,
 			);
 			productName = FstQuickLook;
 			productReference = B00000000000000000000001 /* FstQuickLook.appex */;
@@ -263,7 +263,7 @@
 		F00000000000000000000003 /* XCLocalSwiftPackageReference "Down" */ = {isa = XCLocalSwiftPackageReference; relativePath = Vendor/Down; };
 /* End XCLocalSwiftPackageReference section */
 /* Begin XCSwiftPackageProductDependency section */
-		F00000000000000000000002 /* Down */ = {isa = XCSwiftPackageProductDependency; package = F00000000000000000000003 /* XCLocalSwiftPackageReference "Down" */; productName = Down; };
+		F00000000000000000000002 /* libcmark */ = {isa = XCSwiftPackageProductDependency; package = F00000000000000000000003 /* XCLocalSwiftPackageReference "Down" */; productName = libcmark; };
 /* End XCSwiftPackageProductDependency section */
 /* Begin XCBuildConfiguration section */
 		000000000000000011000000 /* Debug configuration for PBXProject "Fst" */ = {
