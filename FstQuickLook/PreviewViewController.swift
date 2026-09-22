@@ -24,6 +24,12 @@ final class PreviewViewController: NSViewController, QLPreviewingController {
     private var sourceLoaded = false
     private var currentText = ""
     private var currentFilename = ""
+    private var isLiveScrolling = false
+    private var layoutWarmupGeneration = 0
+    private var layoutWarmupOffset = 0
+    private var pendingFullRender: (request: Int, result: MarkdownRenderResult)?
+
+    private static let layoutWarmupChunk = 2_048
 
     override func loadView() {
         configureRenderedView()
@@ -62,12 +68,27 @@ final class PreviewViewController: NSViewController, QLPreviewingController {
         renderedTextView.appearanceChanged = { [weak self] in
             self?.renderedTextView.backgroundColor = .textBackgroundColor
         }
+        NotificationCenter.default.addObserver(self,
+                                               selector: #selector(renderedScrollWillStart(_:)),
+                                               name: NSScrollView.willStartLiveScrollNotification,
+                                               object: renderedScrollView)
+        NotificationCenter.default.addObserver(self,
+                                               selector: #selector(renderedScrollDidEnd(_:)),
+                                               name: NSScrollView.didEndLiveScrollNotification,
+                                               object: renderedScrollView)
         showRendered()
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
     }
 
     func preparePreviewOfFile(at url: URL, completionHandler handler: @escaping (Error?) -> Void) {
         request += 1
         let current = request
+        isLiveScrolling = false
+        cancelLayoutWarmup(resetOffset: true)
+        pendingFullRender = nil
 
         Task { @MainActor in
             do {
@@ -108,6 +129,9 @@ final class PreviewViewController: NSViewController, QLPreviewingController {
                         // after that layout pass so a reused preview never opens mid-document.
                         self.scrollRenderedToTop()
                         self.highlightRenderedCodeBlocks(rendered.codeBlocks)
+                        if firstPaintText.utf8.count == preview.text.utf8.count {
+                            self.startLayoutWarmup(resetOffset: true)
+                        }
                     }
 
                     if firstPaintText.utf8.count < preview.text.utf8.count {
@@ -120,8 +144,11 @@ final class PreviewViewController: NSViewController, QLPreviewingController {
                                     }
                                 }.value
                                 guard let self, current == self.request else { return }
-                                self.installRenderedResult(full, resetToTop: false)
-                                self.highlightRenderedCodeBlocks(full.codeBlocks)
+                                if self.isLiveScrolling {
+                                    self.pendingFullRender = (current, full)
+                                } else {
+                                    self.installFinalRenderedResult(full)
+                                }
                             } catch {
                                 // The already-visible first paint remains useful if the deferred
                                 // full render fails or the request is replaced.
@@ -145,10 +172,28 @@ final class PreviewViewController: NSViewController, QLPreviewingController {
         guard isMarkdown else { return }
         if sender.selectedSegment == 0 {
             showRendered()
+            startLayoutWarmup(resetOffset: false)
         } else {
+            cancelLayoutWarmup(resetOffset: false)
             loadSourceIfNeeded()
             showSource()
         }
+    }
+
+    @objc private func renderedScrollWillStart(_ notification: Notification) {
+        isLiveScrolling = true
+        cancelLayoutWarmup(resetOffset: false)
+    }
+
+    @objc private func renderedScrollDidEnd(_ notification: Notification) {
+        isLiveScrolling = false
+        if let pending = pendingFullRender, pending.request == request {
+            pendingFullRender = nil
+            installFinalRenderedResult(pending.result)
+            return
+        }
+        advanceWarmupOffsetToViewport()
+        startLayoutWarmup(resetOffset: false)
     }
 
     private func configureRenderedView() {
@@ -251,6 +296,13 @@ final class PreviewViewController: NSViewController, QLPreviewingController {
         }
     }
 
+    private func installFinalRenderedResult(_ result: MarkdownRenderResult) {
+        cancelLayoutWarmup(resetOffset: true)
+        installRenderedResult(result, resetToTop: false)
+        highlightRenderedCodeBlocks(result.codeBlocks)
+        startLayoutWarmup(resetOffset: true)
+    }
+
     private func scrollRenderedToTop() {
         // TextKit 2 lays out only the viewport. Asking an NSLayoutManager to lay out the
         // whole container turns a 1 MiB preview into hundreds of milliseconds of work.
@@ -269,6 +321,11 @@ final class PreviewViewController: NSViewController, QLPreviewingController {
         guard let storage = renderedTextView.textStorage else { return }
         let theme = EditorTheme.current(for: renderedTextView.effectiveAppearance)
         let fullText = renderedTextView.string as NSString
+
+        // Coalesce syntax-color changes into one text-storage edit. Applying each token
+        // independently repeatedly invalidates TextKit layout and is visible as scroll jank.
+        storage.beginEditing()
+        defer { storage.endEditing() }
 
         for block in blocks {
             guard block.range.location >= 0,
@@ -302,6 +359,65 @@ final class PreviewViewController: NSViewController, QLPreviewingController {
                 state = result.state
             }
         }
+    }
+
+    private func cancelLayoutWarmup(resetOffset: Bool) {
+        layoutWarmupGeneration += 1
+        if resetOffset { layoutWarmupOffset = 0 }
+    }
+
+    private func startLayoutWarmup(resetOffset: Bool) {
+        guard isMarkdown, !isLiveScrolling, !renderedScrollView.isHidden,
+              renderedTextView.textLayoutManager != nil else { return }
+
+        if resetOffset {
+            layoutWarmupOffset = 0
+            advanceWarmupOffsetToViewport()
+        }
+        layoutWarmupGeneration += 1
+        let generation = layoutWarmupGeneration
+        scheduleLayoutWarmupSlice(generation: generation)
+    }
+
+    private func scheduleLayoutWarmupSlice(generation: Int) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(2)) { [weak self] in
+            self?.runLayoutWarmupSlice(generation: generation)
+        }
+    }
+
+    private func runLayoutWarmupSlice(generation: Int) {
+        guard generation == layoutWarmupGeneration,
+              !isLiveScrolling,
+              !renderedScrollView.isHidden,
+              let layout = renderedTextView.textLayoutManager,
+              let content = layout.textContentManager else { return }
+
+        let document = content.documentRange
+        let total = content.offset(from: document.location, to: document.endLocation)
+        guard layoutWarmupOffset < total else { return }
+
+        let startOffset = layoutWarmupOffset
+        let endOffset = min(total, startOffset + Self.layoutWarmupChunk)
+        guard let start = content.location(document.location, offsetBy: startOffset),
+              let end = content.location(document.location, offsetBy: endOffset),
+              let range = NSTextRange(location: start, end: end) else { return }
+
+        Performance.measure("Markdown layout warmup") {
+            layout.ensureLayout(for: range)
+        }
+        layoutWarmupOffset = endOffset
+        if endOffset < total {
+            scheduleLayoutWarmupSlice(generation: generation)
+        }
+    }
+
+    private func advanceWarmupOffsetToViewport() {
+        guard let layout = renderedTextView.textLayoutManager,
+              let content = layout.textContentManager,
+              let viewport = layout.textViewportLayoutController.viewportRange else { return }
+        let document = content.documentRange
+        let viewportEnd = content.offset(from: document.location, to: viewport.endLocation)
+        layoutWarmupOffset = max(layoutWarmupOffset, viewportEnd)
     }
 
     private static func markdownFirstPaintPrefix(_ markdown: String) -> String {
