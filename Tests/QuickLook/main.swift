@@ -53,6 +53,67 @@ let block = try MarkdownRenderer.render("```sh\n# comment\necho hello\n```\n\n`i
 expect(block.attribute(.backgroundColor, at: 0, effectiveRange: nil) == nil, "Code blocks must not paint each token background")
 expect(block.attribute(.previewCodeBlock, at: 0, effectiveRange: nil) != nil, "Code block has a fragment background")
 
+// Bare URLs must not absorb adjacent Chinese prose. Exercise rendered attributes as well
+// as destinations: clipping only the blue style would leave a wrong clickable URL.
+func renderedLinks(_ text: NSAttributedString) -> [(label: String, destination: String)] {
+    var links: [(String, String)] = []
+    text.enumerateAttribute(.link, in: NSRange(location: 0, length: text.length)) { value, range, _ in
+        if let url = value as? URL {
+            links.append(((text.string as NSString).substring(with: range), url.absoluteString))
+        }
+    }
+    return links
+}
+let queryURL = "https://example.com/base/demo?table=one&view=two&record=three"
+let linkSentence = "记录 (\(queryURL))，后续中文正文；请继续阅读。"
+let linkedSentence = try MarkdownRenderer.render(linkSentence).attributedString
+let sentenceLinks = renderedLinks(linkedSentence)
+expect(sentenceLinks.count == 1 && sentenceLinks[0].label == queryURL && sentenceLinks[0].destination == queryURL,
+       "Bare URL must stop before its enclosing parenthesis and Chinese prose")
+expect(linkedSentence.string == linkSentence, "Link boundaries must not drop or duplicate prose")
+let proseRange = (linkedSentence.string as NSString).range(of: "后续中文正文")
+expect(linkedSentence.attribute(.link, at: proseRange.location, effectiveRange: nil) == nil,
+       "Following prose must not be clickable")
+expect((linkedSentence.attribute(.foregroundColor, at: proseRange.location, effectiveRange: nil) as? NSColor) == PreviewStyle.foreground,
+       "Following prose must retain its normal text color")
+for ending in [")", "),", "，", "。", "；", "：", "！", "？", "、", "）", "】", "》", "」", "』", "“", "”", "‘", "’", "\u{3000}", "\u{00a0}"] {
+    for (label, destination) in [(queryURL, queryURL), ("www.example.com/path", "http://www.example.com/path")] {
+        let input = label + ending + "后续正文"
+        let output = try MarkdownRenderer.render(input).attributedString
+        let links = renderedLinks(output)
+        expect(links.count == 1 && links[0].label == label && links[0].destination == destination,
+               "Bare URL boundary: \(ending)")
+        expect(output.string == input, "Boundary punctuation and prose must remain visible")
+    }
+}
+for url in ["https://example.com/wiki/Function_(mathematics)", "https://example.com/a_((b))?q=(c)",
+            "https://example.com/中文/说明?q=你好&mode=完整#章节", "https://例子.测试/路径",
+            "https://example.com/a%EF%BC%8Cb", "https://example.com/?a=1,2&b=3;4"] {
+    let links = renderedLinks(try MarkdownRenderer.render("(\(url))，后续正文").attributedString)
+    expect(links.count == 1 && links[0].label == url && links[0].destination == URL(string: url)!.absoluteString,
+           "Preserve valid URL content: \(url)")
+}
+let explicitURL = "https://example.com/中文，路径?q=值；更多"
+for input in ["[手动链接](\(explicitURL))，正文", "<\(explicitURL)>，正文",
+              "[手动链接][ref]\n\n[ref]: \(explicitURL)"] {
+    let links = renderedLinks(try MarkdownRenderer.render(input).attributedString)
+    expect(links.count == 1 && links[0].destination == URL(string: explicitURL)!.absoluteString,
+           "Explicit destinations may intentionally contain punctuation")
+}
+let codeLinks = try MarkdownRenderer.render("`\(queryURL)`\n\n```text\n\(queryURL)\n```").attributedString
+expect(renderedLinks(codeLinks).isEmpty, "Code never becomes an automatic link")
+let adjacentLinks = renderedLinks(try MarkdownRenderer.render("\(queryURL)，另见 https://example.org/b。正文").attributedString)
+expect(adjacentLinks.count == 2 && adjacentLinks[1].destination == "https://example.org/b", "Adjacent links stay separate")
+let gfmQuery = "www.example.com/search?q=(business))+ok"
+let gfmQueryLinks = renderedLinks(try MarkdownRenderer.render(gfmQuery).attributedString)
+expect(gfmQueryLinks.count == 1 && gfmQueryLinks[0].destination == "http://" + gfmQuery,
+       "Preserve GFM queries with internal unmatched parentheses")
+let emailLinks = renderedLinks(try MarkdownRenderer.render("help@example.com，联系邮箱").attributedString)
+expect(emailLinks.count == 1 && emailLinks[0].destination == "mailto:help@example.com", "Email detection remains supported")
+let tableLinks = renderedLinks(try MarkdownRenderer.render("| 参考 |\n| --- |\n| \(queryURL)，后续正文 |", width: 2000).attributedString)
+expect(tableLinks.count == 1 && tableLinks[0].destination == queryURL, "Table autolinks use the same boundaries")
+print("PASS: autolink boundaries, Unicode paths, queries, balanced parentheses, explicit links and code exclusions")
+
 let tableMarkdown = #"""
 | Name | Center | Value |
 | :--- | :---: | ---: |

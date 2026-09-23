@@ -35,6 +35,29 @@ static int sd_autolink_issafe(const uint8_t *link, size_t link_len) {
   return 0;
 }
 
+/* Fst: bare URLs often touch CJK prose without ASCII whitespace. Limit this
+ * heuristic to automatic links; explicit [label](url) and <url> destinations
+ * are parsed elsewhere and may intentionally contain these characters. */
+static int is_prose_delimiter(int32_t ch) {
+  switch (ch) {
+  case 0x2018: case 0x2019: /* curly quotes */
+  case 0x201C: case 0x201D:
+  case 0x3001: case 0x3002: /* ideographic comma / full stop */
+  case 0x3008: case 0x3009: /* CJK brackets and quotation marks */
+  case 0x300A: case 0x300B:
+  case 0x300C: case 0x300D:
+  case 0x300E: case 0x300F:
+  case 0x3010: case 0x3011:
+  case 0x3014: case 0x3015:
+  case 0xFF01: case 0xFF08: case 0xFF09: /* fullwidth ! ( ) , : ; ? [ ] { } */
+  case 0xFF0C: case 0xFF1A: case 0xFF1B: case 0xFF1F:
+  case 0xFF3B: case 0xFF3D: case 0xFF5B: case 0xFF5D:
+    return 1;
+  default:
+    return cmark_utf8proc_is_space(ch);
+  }
+}
+
 static size_t autolink_delim(uint8_t *data, size_t link_end) {
   size_t i;
   size_t closing = 0;
@@ -48,7 +71,25 @@ static size_t autolink_delim(uint8_t *data, size_t link_end) {
     } else if (c == '(') {
       opening++;
     } else if (c == ')') {
+      /* An enclosing ')' before Unicode prose or a comma ends a bare URL.
+       * Keep the GFM query case "?q=(business))+ok", and balanced parentheses
+       * within paths. Trailing ')' removal below remains unchanged. */
+      if (closing == opening && i + 1 < link_end &&
+          (data[i + 1] >= 0x80 || data[i + 1] == ',')) {
+        link_end = i;
+        break;
+      }
       closing++;
+    } else if (c >= 0x80) {
+      int32_t ch;
+      int len = cmark_utf8proc_iterate(data + i, (bufsize_t)(link_end - i), &ch);
+      if (len > 0) {
+        if (is_prose_delimiter(ch)) {
+          link_end = i;
+          break;
+        }
+        i += (size_t)len - 1;
+      }
     }
   }
 
